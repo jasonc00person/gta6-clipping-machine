@@ -86,11 +86,18 @@ The formula is in [`scripts/rank_campaigns.py`](scripts/rank_campaigns.py) if yo
 
 ## How it finds moments
 
-Streamers get loud when something happens. The machine measures the stream's loudness every half
-second and compares it with the three minutes around it. The biggest jumps are the moments. Each
-one gets transcribed with the 40 seconds before it (the setup) and the 20 after (the reaction).
-Claude reads those, looks at frames from the best ones, and writes a plan: which seconds to cut,
-the hook text, the caption. Then it builds the clips and checks every one before handing them over.
+It lets the stream's own audience vote. Three signals, strongest first:
+
+1. **Viewer clips** (Twitch): clips the streamer's viewers already made from that VOD, ranked by
+   views. People only clip what made them laugh or gasp.
+2. **Chat floods** (Twitch): the moments chat suddenly explodes with "NOOO", "LMAOOO", "💀".
+3. **Loudness**: when the stream suddenly gets much louder than the minutes around it. Weakest,
+   because gunfire and cutscenes are loud too, but it works on any footage.
+
+Each candidate gets transcribed with the chat messages from that moment mixed in. Claude reads
+them, skips scripted mission cutscenes and dead air, looks at frames from the best ones, and
+writes a plan: which seconds to cut (jump cuts included), the hook text, the caption. Then it builds
+the clips and checks every one before handing them over.
 
 ## The money, honestly
 

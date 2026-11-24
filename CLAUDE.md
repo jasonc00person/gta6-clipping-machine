@@ -11,7 +11,8 @@ Start with `/gta`. The steps are also separate skills: `/setup`, `/find-campaign
 - `scripts/`: Python, each run with `uv run scripts/<name>.py` (dependencies install themselves).
   `--help` on any script explains it.
   - `doctor.py`: setup check. `rank_campaigns.py`: scores scouted campaigns.
-  - `fetch.py`: footage in. `find_moments.py`: loudness spikes + transcripts. `peek.py`: frames to look at.
+  - `fetch.py`: footage in. `find_moments.py`: viewer clips + chat floods (Twitch, via `twitch.py`)
+    + loudness spikes, transcribed. `peek.py`: frames to look at.
   - `make_clips.py`: plan.json to finished clips. `render.py`, `media.py`, `asr.py`, `common.py`: helpers.
 - `work/`: everything per user and per campaign (gitignored).
   - `work/scout/<date>.json`: scouted campaigns, `.ranked.json` next to it.
@@ -31,6 +32,10 @@ Start with `/gta`. The steps are also separate skills: `/setup`, `/find-campaign
 ## Gotchas
 
 - Times in `plan.json` and `moments/*.json` are source times (seconds or `h:mm:ss.s`).
+- Transcripts mix the streamer with the game's own dialogue. Scripted mission lines are not reactions.
+- Twitch's public API serves only the first page of a list to scripts (later pages hit an
+  integrity check), so `twitch.py` combines the VOD's first 100 clips with the channel's top 100
+  by views, and steps through chat by time offset instead of by cursor.
 - Hook text can't contain emoji (the caption font has none). Emoji go in the post caption.
 - Long streams are never downloaded whole: `find_moments.py` uses the audio, and the
   video for each clip is fetched on demand (`media.local_span`).

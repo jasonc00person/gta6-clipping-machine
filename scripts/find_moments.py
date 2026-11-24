@@ -11,19 +11,24 @@
 Usage:
     uv run scripts/find_moments.py work/<campaign> [--source ID] [--top 25] [--range 1:00:00 3:00:00]
 
-How it works:
-  1. Listens to the whole audio and measures loudness every half second.
-  2. Compares each moment to the 3 minutes around it. Streamers get loud when something happens
-     (a crash, a chase, a scream, a laugh), so the biggest jumps over the local baseline are the
-     candidate moments.
-  3. Transcribes a window around each spike (the setup before it and the reaction after).
-     Short videos (20 min or less) are transcribed whole instead.
+Three signals, strongest first:
+  👥 viewer clips  (Twitch VODs) clips the stream's own viewers made, with view counts. People
+                   only clip what made them laugh or gasp.
+  💬 chat          (Twitch VODs) moments where chat suddenly floods, weighted toward
+                   "LMAOOO / KEKW / 💀 / NO WAY" messages.
+  ⚡ loudness      (any source) the streamer, or the game, suddenly getting much louder than the
+                   3 minutes around it. Weakest signal: gunfire and cutscenes are loud too.
 
-Writes moments/<source>.json (data) and moments/<source>.md (the digest Claude reads to pick clips).
+Each candidate gets a window (the setup before and the reaction after), transcribed with the chat
+messages from that moment mixed in. Short videos (20 min or less) are transcribed whole.
+
+Writes moments/<source>.json (data) and moments/<source>.md (the digest Claude reads to pick clips),
+best-scoring windows first.
 """
 from __future__ import annotations
 
 import argparse
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -31,14 +36,18 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import twitch  # noqa: E402
 from asr import transcribe  # noqa: E402
-from common import die, fmt_time, need, parse_time, save, workdir  # noqa: E402
+from common import die, fmt_time, load, need, parse_time, save, workdir  # noqa: E402
 from media import abs_path, sources  # noqa: E402
 
 HOP = 0.5          # seconds per loudness sample
 SR = 8000
 SHORT = 20 * 60    # transcribe whole sources up to this long
+MAX_WINDOW = 120   # never merge candidates into a window longer than this
 
+
+# ---------- loudness ----------
 
 def loudness(audio: Path, start: float | None, end: float | None) -> np.ndarray:
     """dBFS per HOP seconds for audio[start:end]."""
@@ -53,9 +62,8 @@ def loudness(audio: Path, start: float | None, end: float | None) -> np.ndarray:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     hop = int(SR * HOP)
     out, buf = [], b""
-    chunk = hop * 4 * 600
     while True:
-        data = proc.stdout.read(chunk)
+        data = proc.stdout.read(hop * 4 * 600)
         if not data:
             break
         buf += data
@@ -67,8 +75,7 @@ def loudness(audio: Path, start: float | None, end: float | None) -> np.ndarray:
     proc.wait()
     if not out:
         die(f"could not read audio from {audio}")
-    rms = np.concatenate(out)
-    return 20 * np.log10(np.maximum(rms, 1e-5))
+    return 20 * np.log10(np.maximum(np.concatenate(out), 1e-5))
 
 
 def rolling_median(x: np.ndarray, win: int) -> np.ndarray:
@@ -81,7 +88,18 @@ def rolling_median(x: np.ndarray, win: int) -> np.ndarray:
     return out
 
 
-def peaks(db: np.ndarray, top: int, gap_s: float) -> list[tuple[int, float]]:
+def pick_peaks(score: np.ndarray, top: int, gap: int, floor: float) -> list[tuple[int, float]]:
+    found, e = [], score.copy()
+    for _ in range(top):
+        i = int(np.argmax(e))
+        if e[i] < floor:
+            break
+        found.append((i, float(e[i])))
+        e[max(0, i - gap): i + gap] = -1e9
+    return found
+
+
+def loud_spikes(db: np.ndarray, t0: float, top: int) -> list[tuple[float, float]]:
     smooth = np.convolve(db, np.ones(3) / 3, mode="same")
     excite = smooth - rolling_median(db, int(180 / HOP))
     # A spike right after a mostly silent minute is usually the streamer coming back from AFK,
@@ -90,22 +108,107 @@ def peaks(db: np.ndarray, top: int, gap_s: float) -> list[tuple[int, float]]:
     win = int(60 / HOP)
     idx = np.arange(len(db))
     excite -= 15 * (silent[idx] - silent[np.maximum(0, idx - win)]) / win
-    excite[db < -50] = -99  # silence is never a moment
-    gap = int(gap_s / HOP)
-    found, e = [], excite.copy()
-    for _ in range(top):
-        i = int(np.argmax(e))
-        if e[i] < 3:  # less than 3 dB over baseline: nothing left worth a look
-            break
-        found.append((i, float(e[i])))
-        e[max(0, i - gap): i + gap] = -99
-    return found
+    excite[db < -50] = -99
+    return [(t0 + i * HOP, s) for i, s in pick_peaks(excite, top, int(75 / HOP), 3)]
 
 
-def lines(words: list[dict], marks: dict[float, str]) -> list[str]:
-    """Group words into timestamped lines; insert marks (time -> label) where they fall."""
+# ---------- chat ----------
+
+def chat_spikes(msgs: list[dict], length: float, top: int) -> list[dict]:
+    """Moments where chat floods. Works for small chats too (a few messages a minute)."""
+    bin_s = 5
+    n = int(length // bin_s) + 1
+    w = np.zeros(n)
+    for m in msgs:
+        i = int(m["t"] // bin_s)
+        if 0 <= i < n:
+            w[i] += 2.0 if twitch.is_hype(m["m"]) else 1.0
+    s30 = np.convolve(w, np.ones(6), mode="same")                 # weighted messages per 30 s
+    base = np.maximum(rolling_median(s30, 120), 2.0)              # usual rate over 10 min
+    ratio = s30 / base
+    ratio[s30 < 6] = 0
+    out = []
+    for i, r in pick_peaks(ratio, top, int(90 / bin_s), 2.0):
+        t = i * bin_s
+        near = [m for m in msgs if t - 15 <= m["t"] <= t + 15]
+        out.append({"t": float(t), "ratio": round(r, 1), "msgs": len(near),
+                    "hype": sum(twitch.is_hype(m["m"]) for m in near)})
+    return out
+
+
+# ---------- candidates ----------
+
+def candidates(clips, chats, louds, r0, r1) -> list[dict]:
+    c = []
+    for cl in clips:
+        if r0 <= cl["start"] <= r1:
+            c.append({"a": cl["start"] - 12, "b": cl["start"] + cl["dur"] + 8, "sig": [("clip", cl)]})
+    for ch in chats:
+        if r0 <= ch["t"] <= r1:
+            # chat reacts 5-15 s after the moment, so most of the window sits before the flood
+            c.append({"a": ch["t"] - 50, "b": ch["t"] + 12, "sig": [("chat", ch)]})
+    for t, db in louds:
+        c.append({"a": t - 40, "b": t + 20, "sig": [("loud", (t, db))]})
+
+    c.sort(key=lambda x: x["a"])
+    merged = []
+    for x in c:
+        x["a"], x["b"] = max(r0, x["a"]), min(r1, x["b"])
+        m = merged[-1] if merged else None
+        if m and x["a"] <= m["b"] and max(m["b"], x["b"]) - m["a"] <= MAX_WINDOW:
+            m["b"] = max(m["b"], x["b"])
+            m["sig"] += x["sig"]
+        else:
+            merged.append({"a": x["a"], "b": x["b"], "sig": list(x["sig"])})
+    for m in merged:
+        m["score"] = score(m["sig"])
+    return merged
+
+
+def score(sig: list) -> float:
+    """Points per window. Viewer clips count by their views (campaign clippers post lots of
+    zero-view test clips), chat by how far it jumps over its usual rate, loudness least."""
+    clip_pts = min(5.0, sum(1.5 * math.log10(1 + s[1]["views"]) for s in sig if s[0] == "clip"))
+    chat_pts = max((min(3.0, (s[1]["ratio"] - 1) / 2) + min(2.0, s[1]["hype"] / 3)
+                    for s in sig if s[0] == "chat"), default=0)
+    loud_pts = max((max(0.0, min(3.0, (s[1][1] - 15) / 6)) for s in sig if s[0] == "loud"), default=0)
+    return round(clip_pts + chat_pts + loud_pts, 2)
+
+
+def describe(sig: list) -> str:
+    parts = []
+    clips = [s[1] for s in sig if s[0] == "clip"]
+    if clips:
+        views = sum(c["views"] for c in clips)
+        parts.append(f"👥 {len(clips)} viewer clip{'s' if len(clips) > 1 else ''} ({views} views)")
+    chats = [s[1] for s in sig if s[0] == "chat"]
+    if chats:
+        best = max(chats, key=lambda c: c["ratio"])
+        parts.append(f"💬 chat x{best['ratio']} ({best['hype']} hype msgs)")
+    louds = [s[1] for s in sig if s[0] == "loud"]
+    if louds:
+        parts.append(f"⚡ +{max(l[1] for l in louds):.0f} dB")
+    return " · ".join(parts) or "no signal"
+
+
+def marks_for(sig: list, msgs: list[dict], a: float, b: float, max_chat: int = 18) -> list[tuple[float, str]]:
+    marks = []
+    for kind, s in sig:
+        if kind == "clip":
+            marks.append((s["start"], f"👥 viewer clip starts: \"{s['title']}\" ({s['views']} views, {s['dur']:.0f}s)"))
+        elif kind == "loud":
+            marks.append((s[0], f"⚡ loudness spike +{s[1]:.0f} dB"))
+    near = [m for m in msgs if a <= m["t"] <= b]
+    if len(near) > max_chat:  # busy chat: keep the hype messages first
+        near = sorted(near, key=lambda m: (not twitch.is_hype(m["m"]), m["t"]))[:max_chat]
+    marks += [(m["t"], f"💬 {m['m'][:90]}") for m in near]
+    return sorted(marks, key=lambda x: x[0])
+
+
+def lines(words: list[dict], marks: list[tuple[float, str]]) -> list[str]:
+    """Group words into timestamped lines; insert marks where they fall."""
     out, cur, t0 = [], [], None
-    pending = sorted(marks.items())
+    pending = list(marks)
 
     def flush():
         nonlocal cur, t0
@@ -117,7 +220,8 @@ def lines(words: list[dict], marks: dict[float, str]) -> list[str]:
     for w in words:
         while pending and pending[0][0] <= w["s"]:
             flush()
-            out.append(f"      {pending.pop(0)[1]}")
+            t, label = pending.pop(0)
+            out.append(f"      [{fmt_time(t)}] {label}")
         if t0 is not None and (w["s"] - t0 > 10 or (prev_end and w["s"] - prev_end > 1.2)):
             flush()
         if t0 is None:
@@ -127,19 +231,38 @@ def lines(words: list[dict], marks: dict[float, str]) -> list[str]:
         if w["w"].endswith((".", "?", "!")) and w["s"] - t0 > 3:
             flush()
     flush()
-    for _, label in pending:
-        out.append(f"      {label}")
+    out += [f"      [{fmt_time(t)}] {label}" for t, label in pending]
     return out
+
+
+# ---------- main ----------
+
+def twitch_signals(work: Path, sid: str, src: dict, refresh: bool) -> tuple[list, list]:
+    vid = twitch.vod_id(src.get("url"))
+    if not vid:
+        return [], []
+    cache = work / "moments" / f"{sid}.twitch.json"
+    data = None if refresh else load(cache)
+    if data is None:
+        print(f"[{sid}] reading Twitch viewer clips and chat replay ...", flush=True)
+        try:
+            data = {"clips": twitch.viewer_clips(vid),
+                    "chat": twitch.chat(vid, float(src.get("duration") or 0))}
+        except Exception as e:  # Twitch is optional: fall back to loudness alone
+            print(f"[{sid}] couldn't read Twitch data ({e}); using loudness only", flush=True)
+            return [], []
+        save(cache, data)
+    print(f"[{sid}] {len(data['clips'])} viewer clips, {len(data['chat'])} chat messages", flush=True)
+    return data["clips"], data["chat"]
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("work")
     p.add_argument("--source", help="source id (default: every source)")
-    p.add_argument("--top", type=int, default=25, help="how many spikes to transcribe on long sources")
-    p.add_argument("--before", type=float, default=40, help="seconds of setup kept before a spike")
-    p.add_argument("--after", type=float, default=20, help="seconds kept after a spike")
+    p.add_argument("--top", type=int, default=25, help="how many windows to transcribe on long sources")
     p.add_argument("--range", nargs=2, metavar=("START", "END"), help="only scan this part of a long stream")
+    p.add_argument("--refresh", action="store_true", help="re-download Twitch clips and chat")
     a = p.parse_args()
 
     work = workdir(a.work)
@@ -153,54 +276,51 @@ def main():
         audio = abs_path(work, src.get("audio"))
         if not audio or not audio.exists():
             die(f"source '{sid}' has no audio file. Re-run fetch.py.")
-        r0 = parse_time(a.range[0]) if a.range else 0.0
-        r1 = parse_time(a.range[1]) if a.range else None
         dur = float(src.get("duration") or 0)
-        span = (r1 or dur) - r0
+        r0 = parse_time(a.range[0]) if a.range else 0.0
+        r1 = parse_time(a.range[1]) if a.range else dur
+        span = r1 - r0
 
+        clips, msgs = twitch_signals(work, sid, src, a.refresh)
         print(f"[{sid}] scanning loudness over {fmt_time(span)} ...", flush=True)
-        db = loudness(audio, r0 or None, r1)
-        spikes = [(r0 + i * HOP, s) for i, s in peaks(db, a.top, gap_s=75)]
+        louds = loud_spikes(loudness(audio, r0 or None, r1), r0, a.top)
+        chats = [c for c in chat_spikes(msgs, dur, a.top) if r0 <= c["t"] <= r1] if msgs else []
 
         if span <= SHORT:
             print(f"[{sid}] short source: transcribing all of it ...", flush=True)
-            words = transcribe(audio, r0 or None, r1)
-            windows = [{"n": 1, "start": r0, "end": r0 + span, "peak": None, "score": None, "words": words}]
+            sig = [("clip", c) for c in clips] + [("loud", l) for l in louds]
+            windows = [{"n": 1, "start": r0, "end": r1, "score": None, "signals": describe(sig),
+                        "sig": sig, "words": transcribe(audio, r0 or None, r1)}]
         else:
-            raw = sorted((max(r0, t - a.before), min(r0 + span, t + a.after), t, s) for t, s in spikes)
-            merged = []
-            for s0, s1, t, sc in raw:
-                if merged and s0 <= merged[-1][1]:
-                    m = merged[-1]
-                    merged[-1] = (m[0], max(m[1], s1), m[2] if m[3] >= sc else t, max(m[3], sc))
-                else:
-                    merged.append((s0, s1, t, sc))
+            cands = sorted(candidates(clips, chats, louds, r0, r1), key=lambda c: -c["score"])[: a.top]
+            cands.sort(key=lambda c: c["a"])
             windows = []
-            for n, (s0, s1, t, sc) in enumerate(merged, 1):
-                print(f"[{sid}] transcribing window {n}/{len(merged)} at {fmt_time(t)} ...", flush=True)
-                windows.append({"n": n, "start": round(s0, 2), "end": round(s1, 2), "peak": round(t, 2),
-                                "score": round(sc, 1), "words": transcribe(audio, s0, s1)})
+            for n, c in enumerate(cands, 1):
+                print(f"[{sid}] transcribing window {n}/{len(cands)} at {fmt_time(c['a'])} ({describe(c['sig'])}) ...",
+                      flush=True)
+                windows.append({"n": n, "start": round(c["a"], 2), "end": round(c["b"], 2), "score": c["score"],
+                                "signals": describe(c["sig"]), "sig": c["sig"],
+                                "words": transcribe(audio, c["a"], c["b"])})
 
         out_dir = work / "moments"
-        save(out_dir / f"{sid}.json", {"source": sid, "spikes": [[round(t, 2), round(s, 1)] for t, s in spikes],
-                                       "windows": windows})
-
+        save(out_dir / f"{sid}.json", {"source": sid, "windows": [{k: v for k, v in w.items() if k != "sig"}
+                                                                   for w in windows]})
         md = [f"# Moments in '{sid}': {src.get('title', '')}",
-              f"Source length {fmt_time(dur)}. Times below are SOURCE times (use them in plan.json).",
-              "⚡ marks a loudness spike: dB over the surrounding 3 minutes. Bigger = bigger reaction.", ""]
-        if len(windows) == 1 and windows[0]["peak"] is None:
-            marks = {t: f"⚡ spike +{s:.0f} dB" for t, s in spikes}
-            md += ["## Full transcript", ""] + lines(windows[0]["words"], marks)
+              f"Source length {fmt_time(dur)}. All times are SOURCE times (use them in plan.json).",
+              "Signals: 👥 viewer clip (people clipped this) > 💬 chat flood > ⚡ loudness (weakest: game audio is loud too).",
+              "Transcript lines mix the streamer, the game's dialogue and music; 💬 lines are chat.", ""]
+        if len(windows) == 1 and windows[0]["score"] is None:
+            w = windows[0]
+            marks = marks_for(w["sig"], [m for m in msgs if twitch.is_hype(m["m"])], r0, r1, max_chat=200)
+            md += ["## Full transcript", ""] + lines(w["words"], marks)
         else:
-            ranked = sorted(windows, key=lambda w: -w["score"])
-            md += ["Windows by spike size: " + ", ".join(f"W{w['n']} (+{w['score']:.0f})" for w in ranked), ""]
-            for w in windows:
-                md += [f"## W{w['n']} · spike at {fmt_time(w['peak'])} (+{w['score']:.0f} dB) · "
+            for w in sorted(windows, key=lambda w: -w["score"]):
+                md += [f"## W{w['n']} · score {w['score']} · {w['signals']} · "
                        f"{fmt_time(w['start'])}-{fmt_time(w['end'])}", ""]
-                body = lines(w["words"], {w["peak"]: f"⚡ SPIKE +{w['score']:.0f} dB"})
+                body = lines(w["words"], marks_for(w["sig"], msgs, w["start"], w["end"]))
                 md += (body or ["(no speech: game audio only. Peek at it before using.)"]) + [""]
         (out_dir / f"{sid}.md").write_text("\n".join(md), encoding="utf-8")
-        print(f"[{sid}] {len(windows)} window(s) -> {out_dir / f'{sid}.md'}")
+        print(f"[{sid}] {len(windows)} window(s), best first -> {out_dir / f'{sid}.md'}")
 
 
 if __name__ == "__main__":

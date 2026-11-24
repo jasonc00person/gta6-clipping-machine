@@ -181,7 +181,7 @@ def chunks(words: list[dict], max_words: int = 3, max_chars: int = 16) -> list[d
 
     for w in words:
         t = plain(w["w"]).upper().strip(",.;:\"“”")
-        if not t:
+        if not any(ch.isalnum() for ch in t):  # lone dashes, ellipses, etc.
             continue
         item = {"t": t, "s": w["s"], "e": w["e"]}
         if cur and (len(cur) >= max_words

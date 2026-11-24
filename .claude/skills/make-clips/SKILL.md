@@ -60,19 +60,36 @@ uv run scripts/fetch.py work/<campaign> https://www.twitch.tv/<streamer>/videos 
 uv run scripts/find_moments.py work/<campaign> --source <id> [--top 25] [--range 2:00:00 5:00:00]
 ```
 
-Then **read `work/<campaign>/moments/<id>.md`**. Long streams give one window per loudness
-spike (the streamer's reaction) with the transcript of the 40 s before and 20 s after.
+Then **read `work/<campaign>/moments/<id>.md`**, best windows first. Each window lists its
+signals and mixes the transcript with chat messages (💬) from that moment:
+- 👥 **viewer clips** (Twitch): the stream's own viewers clipped this. Strongest signal,
+  especially with views. Many 0 to 5 view clips are other clippers testing: ignore them.
+- 💬 **chat flood** (Twitch): read what chat says. "NOOO JEFF", "LMAOOO", "U KILLED IT" means a
+  moment; "CLIX RAID", "stop botting", "gn" means a raid, drama, or the stream ending.
+- ⚡ **loudness**: weakest. Gunfire, cutscenes and music are loud too.
+
 For marathon VODs over ~8 h, scan in `--range` chunks.
 
+**The transcript mixes the streamer, the game's dialogue and music.** Scripted mission lines
+("Hit the floor! Stay down!") are the game, not the streamer. Only count words that are clearly
+the streamer talking to chat or reacting. When unsure, peek and check if his mouth moves.
+
 Pick 3 to 6 moments. A good GTA clip:
-- has **one clear event** (chase, crash, death, glitch, wild NPC, heist going wrong, a big win)
-  and the streamer's reaction to it;
+- has **one clear event** (crash, death, getting wasted or busted, losing money, a glitch, a wild NPC,
+  hitting something, a plan going wrong) **and the streamer's own reaction is the entertainment**:
+  a funny line, panic, disbelief;
+- is **unscripted** or goes off-script. A story-mission set piece every player sees (the robbery
+  cutscene, the scripted shootout) is not a clip unless the streamer's reaction makes it one;
 - **stands alone**: no "like I said earlier", no inside jokes that need the stream;
-- opens **within a second or two of the action**, never on setup chatter;
-- ends right after the payoff (the reaction or the punchline), 15 to 45 s total;
+- opens **within a second or two of the action** (or on the setup line that makes the payoff land),
+  never on chatter;
+- ends right after the payoff (the punchline or reaction), 15 to 45 s total. Jump-cut dead air
+  out of the middle with several segments;
 - fits the brief (e.g. the streamer must be on screen and look good: no rage-bait framing).
 
-Skip windows that are just music, menus, or chat reading.
+Skip windows that are just music, menus, chat reading, raids, or the streamer AFK.
+If nothing in the digest is genuinely funny or surprising, say so and scan another VOD rather
+than shipping a weak clip: one good clip beats five boring ones.
 
 ## 4. Look before you cut
 
