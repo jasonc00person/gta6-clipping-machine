@@ -1,6 +1,6 @@
 ---
 name: make-clips
-description: Turns a joined clipping campaign into ready-to-post 9:16 shorts. Reads the brief, downloads the campaign footage (Twitch/YouTube/Kick VODs, Drive/Dropbox folders), finds the best moments, cuts them with captions and a hook, and writes a posting sheet per clip. Use for "make clips", "clip this campaign", "clip this VOD", or step 2 of /gta.
+description: Turns a joined clipping campaign into ready-to-post 9:16 shorts. Reads the brief, downloads the campaign footage (Twitch/YouTube/Kick VODs, Drive/Dropbox folders), finds the best moments, cuts them with a native TikTok-style hook, and writes a posting sheet per clip. Use for "make clips", "clip this campaign", "clip this VOD", or step 2 of /gta.
 ---
 
 # Make clips for a campaign
@@ -100,7 +100,9 @@ uv run scripts/peek.py work/<campaign> <source> <start> <end>
 Read both images it prints. The contact sheet shows what's on screen across the span; skip a
 moment if the gameplay doesn't show what the audio suggests. The `_grid.jpg` has 10% grid lines:
 read the facecam box off it as `[x, y, w, h]` fractions of the frame (the facecam is usually the
-same for the whole stream, so do this once per source).
+same for the whole stream, so do this once per source). Set `game_x` so the split's gameplay crop
+doesn't include the stream's own facecam box (or the face shows twice). Chat, alerts and other
+stream overlays at the edges are fine: don't zoom in just to hide them.
 
 Layouts:
 - `split`: facecam top, gameplay bottom. **Default for streamer campaigns** (they want the streamer visible).
@@ -114,24 +116,41 @@ word's start/end: start ~0.2 s before the first word you keep, end ~0.5 s after 
 
 ```json
 {
-  "defaults": {"layout": "split", "cam": [0.74, 0.04, 0.25, 0.31]},
+  "defaults": {"layout": "split", "cam": [0.74, 0.04, 0.25, 0.31], "game_x": 0.45},
   "clips": [
     {
-      "name": "jeff-vs-the-cops",
+      "name": "jeff-loses-everything",
       "source": "day3",
-      "segments": [["1:02:03.4", "1:02:38.9"]],
-      "hook": "he really thought he could outrun them",
-      "caption": "he was SO confident 😭 #gta6 #gtavi",
-      "title": "He Thought He Could Outrun The Cops (GTA 6)",
-      "why": "chase into crash, huge reaction, no context needed"
+      "segments": [["5:44:29.8", "5:44:43.3"], ["5:44:49.9", "5:44:53.0"], ["5:45:17.9", "5:45:29.9"]],
+      "hook": "bro forgot gta 6 has a bank and lost EVERYTHING 😭",
+      "caption": "always put it in the bank chat 💀 #gta6 #gta",
+      "title": "He Lost Every Dollar In GTA 6 😭",
+      "why": "most-viewed viewer clip; crash, wasted, banking app shows $450"
     }
   ]
 }
 ```
 
 - `segments`: one span, or several for jump cuts (cut dead air out of the middle).
-- `hook`: the on-screen top text. Short, lowercase-casual, curiosity or punchline. **No emoji** (the font can't draw them).
-- `caption`: the post caption. Emoji are fine here. Campaign hashtags/mentions are appended automatically.
+- `hook`: the one line of on-screen text, shown the whole clip in TikTok's native style (white
+  boxes, black text) on the seam between facecam and gameplay. It's the most important thing you
+  write: it's what stops the scroll. Write it the way a Gen Z clip page would type it in the
+  TikTok app:
+  - all lowercase, except **one word in CAPS** for emphasis ("lost EVERYTHING", "the HAPPY ending");
+  - call the streamer **"bro"** (or "he", "this guy"), not by name: nobody scrolling knows a
+    mid-size streamer, and using his name reads like trying too hard. Use the name only for
+    creators everyone on the app knows (Lacy, Marlon, IShowSpeed, Kai Cenat, xQc tier);
+  - one specific detail, 6 to 14 words, no period at the end;
+  - **end with one emoji** (two max): 😭 💀 🥹 😂 🙏 😳 🫡 🤣 😤 🔥 😮. Single-character emoji
+    only: skin tones, flags and combined emoji don't render;
+  - the voice: "bro really thought…", "not bro…", "bro is the only one who…", "no way he…",
+    "the way he…", "lowkey…", "bro is so cooked". Never explain the joke or spoil the punchline;
+  - e.g. "bro really thought he ran over a DOG 💀", "bro forgot gta 6 has a bank and lost
+    EVERYTHING 😭", and for a huge creator "lacy is apart of the 0.002% to get the HAPPY ending 🥹".
+- `caption`: the post caption, same voice, short ("bro is cooked 😭 #gta6 #gta"). Campaign
+  hashtags and mentions are appended automatically.
+- `captions`: `true` adds word-by-word speech captions (white with a black outline). Off by
+  default: native clips usually carry just the hook. Turn on for dialogue-heavy clips.
 - Per-clip overrides: `layout`, `cam`, `zoom` (1.0 to 1.5, zooms the gameplay), `x` (crop),
   `game_x` / `game_y` (where the split's gameplay crop centres), `hook_secs` (hide the hook after N s).
 - `name` is a unique kebab-case title.
@@ -144,8 +163,9 @@ uv run scripts/make_clips.py work/<campaign> --only jeff-vs-the-cops
 ```
 
 For every clip, **read `clips/<name>/preview.jpg`**: facecam framed (no half faces, no overlay
-junk), the gameplay showing the action, captions and hook readable, nothing important under the
-text. Read the transcript at the bottom of `post.md` for misheard names. Fix plan.json and rebuild
+junk), the gameplay showing the action, the hook readable and sitting on the seam, nothing
+important under the text. With speech captions on, read the transcript at the bottom of
+`post.md` for misheard names. Fix plan.json and rebuild
 with `--only`. Don't hand over a clip you haven't looked at.
 
 ## 7. Hand over

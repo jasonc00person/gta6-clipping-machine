@@ -36,7 +36,8 @@ Start with `/gta`. The steps are also separate skills: `/setup`, `/find-campaign
 - Twitch's public API serves only the first page of a list to scripts (later pages hit an
   integrity check), so `twitch.py` combines the VOD's first 100 clips with the channel's top 100
   by views, and steps through chat by time offset instead of by cursor.
-- Hook text can't contain emoji (the caption font has none). Emoji go in the post caption.
+- On-screen text is TikTok Sans (`assets/fonts`, OFL) with the system's color emoji font.
+  Pillow here has no text shaping (raqm), so only single-character emoji render.
 - Long streams are never downloaded whole: `find_moments.py` uses the audio, and the
   video for each clip is fetched on demand (`media.local_span`).
 - On-screen text is drawn with Pillow and overlaid, so any ffmpeg build works.

@@ -10,8 +10,9 @@ Run a GTA 6 clipping page with Claude Code. It does the boring parts for you:
 3. **Finds the clippable moments.** It listens to the whole stream for the spots where the streamer
    blows up (chases, crashes, deaths, wild NPCs), transcribes them, and picks the ones that work as a
    standalone clip.
-4. **Cuts basic shorts.** 9:16, facecam on top and gameplay underneath (or full-frame), word-by-word
-   captions, a hook line at the top. Ready for TikTok, YouTube Shorts and Instagram Reels.
+4. **Cuts basic shorts.** 9:16, facecam on top and gameplay underneath (or full-frame), with one
+   Gen Z hook line in TikTok's own text style (TikTok Sans, white boxes, emoji) right on the seam.
+   Word-by-word speech captions are there if you want them. Ready for TikTok, Shorts and Reels.
 5. **Gives you a posting sheet** for every clip (caption, hashtags, the campaign's rules), and
    **submits your links** to the campaign after you post.
 
@@ -132,5 +133,5 @@ Everything you make lives in `work/` (ignored by git).
 
 ## License
 
-MIT. Not affiliated with Rockstar Games, Content Rewards, Whop or Clipping. Make sure you have the
+MIT. TikTok Sans (in `assets/fonts`) is © TikTok Inc. under the SIL Open Font License. Not affiliated with Rockstar Games, Content Rewards, Whop or Clipping. Make sure you have the
 right to clip any footage you use. Campaign footage comes with that permission.

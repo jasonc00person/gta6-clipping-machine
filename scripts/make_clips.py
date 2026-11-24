@@ -11,13 +11,13 @@
 """Build the clips in plan.json into ready-to-post 9:16 shorts.
 
 Usage:
-    uv run scripts/make_clips.py work/<campaign> [--only NAME] [--no-captions]
+    uv run scripts/make_clips.py work/<campaign> [--only NAME] [--captions]
 
 For each clip in work/<campaign>/plan.json:
   1. gets the footage for its segments (downloads just those seconds for long streams)
-  2. joins the segments, transcribes the result for word-timed captions
-  3. lays it out 9:16 (fit / split / crop), burns in captions + hook text (+ logo if the campaign
-     needs one), evens out the loudness
+  2. joins the segments (and transcribes them, if speech captions are on)
+  3. lays it out 9:16 (fit / split / crop), burns in the hook text in TikTok's native style
+     (+ speech captions and a logo when asked for), evens out the loudness
   4. writes clips/<name>/<name>.mp4, preview.jpg (6 frames, to check the layout) and post.md
      (caption, hashtags and the campaign's rules, ready to paste)
 
@@ -29,9 +29,10 @@ plan.json:
       "name": "cops-vs-jeff",
       "source": "asianjeff-gta-6-day-3",
       "segments": [["1:02:03.5", "1:02:41"]],      # source times; several = jump cuts
-      "hook": "he really thought he got away",      # on-screen text, no emoji
+      "hook": "bro really thought he got away 😭",  # on-screen text, TikTok style, emoji ok
       "hook_secs": null,                            # null = whole clip
       "layout": "split", "cam": [...], "zoom": 1.0, "x": 0.5, "game_x": 0.5,
+      "captions": false,                            # true = word-by-word speech captions too
       "caption": "bro forgot cops exist #gta6",     # the post caption
       "title": "He Thought He Got Away (GTA 6)",    # YouTube Shorts title
       "why": "chase into crash, big reaction, stands alone"
@@ -51,7 +52,7 @@ from asr import transcribe  # noqa: E402
 from common import die, fmt_time, load, need, parse_time, probe, run, workdir  # noqa: E402
 from media import local_span, sources  # noqa: E402
 from peek import contact_sheet, grab  # noqa: E402
-from render import Painter, chunks, layout, overlay_track, plain  # noqa: E402
+from render import Painter, chunks, clean, layout, overlay_track  # noqa: E402
 
 
 def resolve(work: Path, clip: dict) -> list[dict]:
@@ -126,7 +127,7 @@ def build(work: Path, clip: dict, campaign: dict, captions: bool):
         vf, spots = layout(clip, sw, sh)
     except ValueError as e:
         die(str(e))
-    hook = plain(clip.get("hook") or "") or None
+    hook = clean(clip.get("hook") or "") or None
     painter = Painter(spots, campaign.get("logo"), work)
     track = overlay_track(tmp, painter, duration, caps, hook, clip.get("hook_secs"))
 
@@ -180,11 +181,9 @@ def write_post(out_dir: Path, clip: dict, campaign: dict, duration: float, words
         "- [ ] Posted from the account you linked to the campaign",
         f"- [ ] Submit the post link on the campaign page within {window} minutes of posting",
         "",
-        "## What's said (for checking captions)",
-        "",
-        " ".join(w["w"] for w in words) or "(no speech detected)",
-        "",
     ]
+    if words:
+        lines += ["## What's said (for checking captions)", "", " ".join(w["w"] for w in words), ""]
     (out_dir / "post.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -192,7 +191,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("work")
     p.add_argument("--only", help="build just this clip name")
-    p.add_argument("--no-captions", action="store_true")
+    p.add_argument("--captions", action="store_true", help="add word-by-word speech captions to every clip")
     a = p.parse_args()
 
     need("ffmpeg")
@@ -215,7 +214,7 @@ def main():
     print(f"building {len(clips)} clip(s) ...")
     for c in clips:
         print(f"- {c['name']}")
-        build(work, c, campaign, captions=not a.no_captions and c.get("captions", True))
+        build(work, c, campaign, captions=a.captions or bool(c.get("captions", False)))
     print(f"\ndone. Clips + post.md files are in {work / 'clips'}")
 
 
