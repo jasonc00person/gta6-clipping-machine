@@ -1,7 +1,7 @@
 # GTA 6 Clipping Machine
 
 A Claude Code project that runs a clipping page: it finds paying clipping campaigns, cuts the
-campaign's footage into short vertical clips, and submits the links after the user posts them.
+campaign's footage into short vertical clips, posts them when asked, and submits the links.
 
 Start with `/gta`. The steps are also separate skills: `/setup`, `/find-campaigns`, `/make-clips`,
 `/submit-clips` (in `.claude/skills/`).
@@ -13,7 +13,8 @@ Start with `/gta`. The steps are also separate skills: `/setup`, `/find-campaign
   - `doctor.py`: setup check. `rank_campaigns.py`: scores scouted campaigns.
   - `fetch.py`: footage in. `find_moments.py`: viewer clips + chat floods (Twitch, via `twitch.py`)
     + loudness spikes, transcribed. `peek.py`: frames to look at.
-  - `make_clips.py`: plan.json to finished clips. `render.py`, `media.py`, `asr.py`, `common.py`: helpers.
+  - `make_clips.py`: plan.json to finished clips. `upload_copies.py`: sub-10 MB copies for browser uploads.
+    `render.py`, `media.py`, `asr.py`, `common.py`: helpers.
 - `work/`: everything per user and per campaign (gitignored).
   - `work/scout/<date>.json`: scouted campaigns, `.ranked.json` next to it.
   - `work/<campaign>/`: `campaign.json`, `sources.json`, `audio/`, `video/`, `moments/`, `sheets/`,
@@ -21,7 +22,9 @@ Start with `/gta`. The steps are also separate skills: `/setup`, `/find-campaign
 
 ## Rules
 
-- The user posts to social media. Never upload or post for them.
+- Post to social media only when the user asks, after they approve the exact list (clip, platform,
+  caption) in chat, and only from the browser profile signed in to the clipping page's accounts.
+  `/submit-clips` has the per-platform steps. Browser uploads cap at 10 MB: `scripts/upload_copies.py`.
 - Joining a campaign and submitting links are the user's decisions: confirm in chat first.
 - Never sign in, create accounts, or type passwords for the user. If a page needs a login, ask them.
 - Follow each campaign's rules (required hashtags, who must be on screen, no logos, etc.).

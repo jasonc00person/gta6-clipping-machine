@@ -170,9 +170,9 @@ with `--only`. Don't hand over a clip you haven't looked at.
 
 ## 7. Hand over
 
-List each clip: name, length, the hook, and the path to its `post.md`. Tell the user to:
-1. post each clip themselves from the accounts linked to the campaign (TikTok, Shorts, Reels, X),
-   with the caption from post.md, spacing posts out instead of dumping them all at once;
-2. run `/submit-clips` right after posting: most campaigns require the link within 30 minutes.
+List each clip: name, length, the hook, and the path to its `post.md`. Next step is `/submit-clips`:
+the user either posts each clip themselves from the accounts linked to the campaign (caption from
+post.md) and hands you the links, or asks you to post them in the browser. Most campaigns want
+the link within 30 minutes of posting.
 
-Never post to social accounts for the user.
+Don't post anything to social accounts unless the user asks for it.

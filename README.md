@@ -13,10 +13,13 @@ Run a GTA 6 clipping page with Claude Code. It does the boring parts for you:
 4. **Cuts basic shorts.** 9:16, facecam on top and gameplay underneath (or full-frame), with one
    Gen Z hook line in TikTok's own text style (TikTok Sans, white boxes, emoji) right on the seam.
    Word-by-word speech captions are there if you want them. Ready for TikTok, Shorts and Reels.
-5. **Gives you a posting sheet** for every clip (caption, hashtags, the campaign's rules), and
-   **submits your links** to the campaign after you post.
+5. **Gives you a posting sheet** for every clip (caption, hashtags, the campaign's rules),
+   **posts the clips** to TikTok, Reels and Shorts in your browser if you ask, and **submits the
+   links** to the campaign inside its 30-minute window.
 
-You post the clips yourself, from your own accounts. Nothing gets uploaded for you.
+Posting is your call: post the clips yourself and hand Claude the links, or ask it to post them in
+your browser after you approve every caption. Use a separate Chrome profile for your clipping
+accounts so nothing ever lands on your personal ones.
 
 ## What you need
 
@@ -65,7 +68,7 @@ The first run checks your setup and tells you how to fix anything missing.
 | `/gta` | The whole machine, start to finish |
 | `/find-campaigns` | Browse both platforms, rank campaigns, recommend one |
 | `/make-clips` | Footage → moments → finished clips + posting sheets |
-| `/submit-clips` | Submit your posted links to the campaign |
+| `/submit-clips` | Post your clips (only if you ask) and submit the links to the campaign |
 | `/setup` | Check and install what's needed |
 
 You can also just talk to it: *"make 5 clips from AsianJeff's latest stream"*, *"redo the second

@@ -22,3 +22,7 @@ __pycache__/
 # os
 .DS_Store
 Thumbs.db
+
+# encoder two-pass logs
+x265_2pass.log*
+ffmpeg2pass-*.log*
