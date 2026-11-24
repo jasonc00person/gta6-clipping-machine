@@ -1,0 +1,24 @@
+# your campaigns, footage and clips
+work/
+
+# local notes and settings
+CLAUDE.local.md
+.claude/settings.local.json
+.env
+
+# media anywhere else
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.wav
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# os
+.DS_Store
+Thumbs.db
